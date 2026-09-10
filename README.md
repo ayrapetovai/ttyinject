@@ -52,6 +52,9 @@ all of this and reports each item as ok / warn / fail.
 - `just` — task runner (optional; you can run the recipes by hand).
 - `sudo` — only `just install`/`just uninstall` use it, to set/remove the
   `4750 root:you` ownership. The `test` recipe also uses `sudo -n` (passwordless).
+  `just install` names the group via `whoami`, so the user must belong to a
+  group with the same name as the login (the default on most distros); `just
+  check` verifies this.
 
 ### Runtime tools
 

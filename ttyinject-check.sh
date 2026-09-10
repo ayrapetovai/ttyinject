@@ -16,9 +16,17 @@ FAILS=0
 WARNS=0
 
 say()  { printf '%s\n' "$*"; }
-ok()   { printf '  [ ok ]   %s\n' "$*"; }
-warn() { printf '  [ warn ] %s\n' "$*"; WARNS=$((WARNS + 1)); }
-fail() { printf '  [ FAIL ] %s\n' "$*"; FAILS=$((FAILS + 1)); }
+
+# colors (disable when not a tty or NO_COLOR is set)
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+  GREEN=$'\033[1;32m'; YELLOW=$'\033[1;33m'; RED=$'\033[1;31m'; OFF=$'\033[0m'
+else
+  GREEN=; YELLOW=; RED=; OFF=
+fi
+
+ok()   { printf '  [ %sok%s ]   %s\n' "$GREEN" "$OFF" "$*"; }
+warn() { printf '  [ %swarn%s ] %s\n' "$YELLOW" "$OFF" "$*"; WARNS=$((WARNS + 1)); }
+fail() { printf '  [ %sFAIL%s ] %s\n' "$RED" "$OFF" "$*"; FAILS=$((FAILS + 1)); }
 hdr()  { printf '\n== %s ==\n' "$*"; }
 
 version_ge() { # $1 current "X.Y", $2 minimum "X.Y"
@@ -86,6 +94,26 @@ hdr "Runtime tools"
 if command -v python3 >/dev/null 2>&1; then ok "python3: $(command -v python3)"; else warn "python3 missing -- ttyinject-wrapper.py and the kitty resolver need it"; fi
 if command -v tmux >/dev/null 2>&1; then ok "tmux present"; else warn "tmux missing -- 'just test' will not run"; fi
 if command -v kitty >/dev/null 2>&1; then ok "kitty present"; else warn "kitty not found -- skip install-kitty and the kitty shortcut (program still works)"; fi
+
+hdr "Account"
+me=$(id -un)
+grp_exists=0
+if command -v getent >/dev/null 2>&1; then
+  getent group "$me" >/dev/null 2>&1 && grp_exists=1
+else
+  printf '%s' "$(cat /etc/group 2>/dev/null)" | grep -Eq "(^|:)$me:" && grp_exists=1
+fi
+if [ "$grp_exists" -eq 1 ]; then
+  in_grp=0
+  for g in $(id -Gn); do [ "$g" = "$me" ] && in_grp=1; done
+  if [ "$in_grp" -eq 1 ]; then
+    ok "group '$me' exists and '$me' is a member ('just install' uses -g $(id -un) for the 4750 group-exec bit)"
+  else
+    warn "group '$me' exists but '$me' is not a member -- you will not be able to exec the installed 4750 binary; 'just install' will still succeed (group owner set)"
+  fi
+else
+  fail "no group named '$me' (groups: $(id -Gn)) -- 'sudo install -g $(id -un)' will fail"
+fi
 
 hdr "Binary"
 BIN=./ttyinject
