@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+"""ttyinject-kitty-tty-resolver -- print the /dev/pts path of the focused kitty
+window's foreground process. Optional kitty-specific glue: the generic wrapper
+stays terminal-agnostic; kitty.conf calls this to resolve the target tty.
+
+Needs: kitty remote control enabled (allow_remote_control yes + listen_on).
+"""
+import json
+import os
+import subprocess
+import sys
+
+
+def die(msg):
+    print("resolver: %s" % msg, file=sys.stderr)
+    sys.exit(2)
+
+
+try:
+    proc = subprocess.run(["kitty", "@", "ls"], capture_output=True, text=True,
+                          timeout=10, close_fds=False)
+except subprocess.TimeoutExpired:
+    die("kitty @ timed out")
+if proc.returncode != 0:
+    die("kitty @ rc=%s stderr=%s" % (proc.returncode, proc.stderr[:200]))
+try:
+    d = json.loads(proc.stdout)
+except (json.JSONDecodeError, UnicodeDecodeError) as e:
+    die("bad kitty output: %s" % e)
+
+os_win = next((x for x in d if x.get("is_focused")), d[0])
+ws = [w for t in os_win.get("tabs", []) for w in t.get("windows", [])]
+a = next((w for w in ws if w.get("is_active")), ws[0])
+pids = [p["pid"] for p in (a.get("foreground_processes") or [])] or [a["pid"]]
+
+
+def tty_of(pid):
+    try:
+        p = os.readlink(f"/proc/{pid}/fd/0")
+    except OSError:
+        p = ""
+    if p.startswith("/dev/pts") or p.startswith("/dev/ttyS"):
+        return p
+    try:
+        fields = open(f"/proc/{pid}/stat").read().rsplit(")", 1)[1].split()
+        dev = int(fields[4])  # tty_nr: controlling terminal of the process
+    except (OSError, ValueError, IndexError):
+        return None
+    if dev == 0:
+        return None
+    maj, minor = os.major(dev), os.minor(dev)
+    if 136 <= maj < 144:
+        return f"/dev/pts/{(maj - 136) * 256 + minor}"
+    if maj == 4 and minor > 0:
+        return f"/dev/tty{minor}"
+    return None
+
+
+out = next((t for t in map(tty_of, pids) if t), None)
+if not out:
+    die("could not resolve a tty for pids %s" % pids)
+print(out)
+
